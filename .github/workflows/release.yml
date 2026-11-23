@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: yousefayat732-prog/CHEXX
-          ref: 6015b626e28fdce412a1e1ae2d97eaad902b1979
+          ref: 281005816a8487f9d4d0b890ce26460293608a53
           ssh-key: ${{ secrets.CHEXX_PRIVATE_SOURCE_DEPLOY_KEY }}
           path: source
           persist-credentials: false
@@ -46,7 +46,7 @@ jobs:
           $channel=Get-Content source/update-channel.json -Raw|ConvertFrom-Json
           if($pkg.version -ne $v){throw 'Source package version mismatch'}
           $sourceCommit=(& git -C source rev-parse HEAD).Trim()
-          if($LASTEXITCODE -ne 0 -or $sourceCommit -ne '6015b626e28fdce412a1e1ae2d97eaad902b1979'){throw 'Unexpected source commit'}
+          if($LASTEXITCODE -ne 0 -or $sourceCommit -ne '281005816a8487f9d4d0b890ce26460293608a53'){throw 'Unexpected source commit'}
           if($channel.owner -ne 'yousefayat732-prog' -or $channel.repo -ne 'chexx-releases'){throw 'Wrong update channel'}
           # GitHub returns 404 for a DRAFT when queried by /releases/tags/<tag>.
           # Find it through the authenticated release collection, then use the release ID.
