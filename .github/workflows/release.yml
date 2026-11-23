@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: yousefayat732-prog/CHEXX
-          ref: bfa8c8adcac49c5140d8b42099ce0068bb33204b
+          ref: 7b2da6dd2ab24966118ef864e488a05861e04af5
           ssh-key: ${{ secrets.CHEXX_PRIVATE_SOURCE_DEPLOY_KEY }}
           path: source
           persist-credentials: false
@@ -46,7 +46,7 @@ jobs:
           $channel=Get-Content source/update-channel.json -Raw|ConvertFrom-Json
           if($pkg.version -ne $v){throw 'Source package version mismatch'}
           $sourceCommit=(& git -C source rev-parse HEAD).Trim()
-          if($LASTEXITCODE -ne 0 -or $sourceCommit -ne 'bfa8c8adcac49c5140d8b42099ce0068bb33204b'){throw 'Unexpected source commit'}
+          if($LASTEXITCODE -ne 0 -or $sourceCommit -ne '7b2da6dd2ab24966118ef864e488a05861e04af5'){throw 'Unexpected source commit'}
           if($channel.owner -ne 'yousefayat732-prog' -or $channel.repo -ne 'chexx-releases'){throw 'Wrong update channel'}
           # GitHub returns 404 for a DRAFT when queried by /releases/tags/<tag>.
           # Find it through the authenticated release collection, then use the release ID.
@@ -143,7 +143,7 @@ jobs:
           if([long]$installerAsset.size -ne (Get-Item $exe).Length){throw 'Installer size mismatch'}
           if($installerAsset.digest -and $installerAsset.digest -ne ('sha256:'+$digest)){throw 'GitHub-reported installer digest mismatch'}
           $notes=Join-Path $releaseDir 'release-notes.txt'
-          $body='CHEXX '+$tag+' – Windows x64, verified source and SHA-256 installer. Full-screen red warning and mandatory verified profile backup before installation. All automated tests and packaged-assets checks passed. Windows installer is UNSIGNED and may trigger SmartScreen. Online one-click update is not yet verified. Corresponding source and third-party license notices are publicly attached in CHEXX-'+$v+'-source.zip.'
+          $body='Charli Chexx '+$tag+' – Windows x64, verified source and SHA-256 installer. Full-screen red warning and mandatory verified profile backup before installation. Silver-green ten-resolution CC Windows icon; the original cyan rook remains beside CC in the app header. Legacy appId, CHEXX.exe and profile location are preserved. All automated tests and packaged-assets checks passed. Windows installer is UNSIGNED and may trigger SmartScreen. Online one-click update is not yet verified. Corresponding source and third-party license notices are publicly attached in CHEXX-'+$v+'-source.zip.'
           [IO.File]::WriteAllText($notes,$body,[Text.UTF8Encoding]::new($false))
           # Publish by release ID; drafts cannot reliably be addressed by tag endpoints.
           $payload=Join-Path $releaseDir 'publish-payload.json'
