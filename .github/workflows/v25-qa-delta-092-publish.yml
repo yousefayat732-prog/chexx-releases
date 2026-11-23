@@ -1,0 +1,43 @@
+name: Charli Chexx V25 FAST QA DELTA — Publish only verified 0.9.2 patch
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/v25-qa-delta-092-publish.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: v25-qa-fast-delta-092-asset-update
+  cancel-in-progress: false
+jobs:
+  publish-delta:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - name: Checkout public release QA scripts
+        uses: actions/checkout@v4
+      - name: Download tested Windows delta artifact from successful build
+        uses: actions/download-artifact@v4
+        with:
+          repository: yousefayat732-prog/chexx-releases
+          run-id: 45244579232
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: charli-chexx-v25-qa-delta-092-verified-unpublished
+          path: downloaded-delta
+      - name: Verify and publish only V25 test delta into existing prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./.github/scripts/v25-qa-delta-092-publish.ps1
+      - name: Preserve recoverable old metadata and delta receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: charli-chexx-v25-qa-delta-092-feed-backup
+          path: |
+            downloaded-delta/old-release-metadata/*
+            downloaded-delta/fast-qa-proof.json
+          if-no-files-found: warn
+          retention-days: 14
+# Only replaces metadata on existing V25 prerelease; stable v0.8.8 unmodified.
