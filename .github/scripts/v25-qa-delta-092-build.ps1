@@ -67,5 +67,5 @@ try {
  # After proving exact reconstruction, remove 854MB of immutable source packages from
  # the temporary artifact output, so the artifact includes ONLY the delta and its evidence.
  Remove-Item -LiteralPath $old,$new -Force
- if(Test-Path $old -or Test-Path $new){throw 'Old full package cleanup failed'}
+ if((Test-Path -LiteralPath $old) -or (Test-Path -LiteralPath $new)){throw 'Old full package cleanup failed'}
 } finally {Pop-Location}
