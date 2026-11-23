@@ -1,0 +1,42 @@
+name: Charli Chexx V26 ORIGINAL v0.8.10 Stable Publish (GATED)
+on:
+  workflow_dispatch:
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: v26-original-0-8-9-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - name: Checkout public gated publisher
+        uses: actions/checkout@v4
+      - name: Checkout exact private original source read-only
+        uses: actions/checkout@v4
+        with:
+          repository: yousefayat732-prog/CHEXX
+          ref: 01d34764fa463dff7c982016a7314f9e63b85558
+          ssh-key: ${{ secrets.CHEXX_PRIVATE_SOURCE_DEPLOY_KEY }}
+          path: source
+          persist-credentials: false
+      - name: Download Windows-tested original 0.8.10 candidate
+        uses: actions/download-artifact@v4
+        with:
+          repository: yousefayat732-prog/chexx-releases
+          run-id: 45253373338
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: charli-chexx-v26-original-0.8.10-nsis-candidate
+          path: candidate
+      - name: Publish unchanged verified installer only after CI NSIS migration PASS
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./.github/scripts/v26-original-release-publish-0810.ps1
+
+# Product remains NSIS with app.chexx.academy, NOT an untested migration to Velopack.
+# This job refuses release unless entire candidate workflow (including isolated
+# Windows 0.8.8 -> 0.8.10 helper migration + profile QA) concluded success.
