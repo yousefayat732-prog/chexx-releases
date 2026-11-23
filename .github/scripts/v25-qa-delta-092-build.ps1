@@ -64,4 +64,8 @@ try {
   originalRelease='v25-github-qa-0.9.2';originalReleaseUntouched=$true}
  NoBom 'fast-qa-proof.json' ($evidence|ConvertTo-Json -Depth 10)
  Write-Output ('VELOPACK_QA_DELTA_BUILD_AND_RECONSTRUCT_PASS '+($evidence|ConvertTo-Json -Compress))
+ # After proving exact reconstruction, remove 854MB of immutable source packages from
+ # the temporary artifact output, so the artifact includes ONLY the delta and its evidence.
+ Remove-Item -LiteralPath $old,$new -Force
+ if(Test-Path $old -or Test-Path $new){throw 'Old full package cleanup failed'}
 } finally {Pop-Location}
