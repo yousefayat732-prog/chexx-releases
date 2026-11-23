@@ -43,3 +43,4 @@ jobs:
 # This job refuses release unless entire candidate workflow (including isolated
 # Windows 0.8.8 -> 0.8.10 helper migration + profile QA) concluded success.
 # Re-run only the SHA-256-corrected gated publisher; source and candidate remain pinned.
+# Confirmed Windows PowerShell publisher syntax PASS; no duplicate script suffix.
