@@ -1,0 +1,95 @@
+name: Charli Chexx V25 GithubSource REAL Update E2E (GitHub Windows only)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/v25-githubsource-e2e.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  v25-githubsource-update:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - name: Checkout public release QA scripts
+        uses: actions/checkout@v4
+      - name: Checkout reviewed private V25 source for read-only test helper
+        uses: actions/checkout@v4
+        with:
+          repository: yousefayat732-prog/CHEXX
+          ref: 3db41ad08c4f96858417ce6aedbc957f7a303a07
+          ssh-key: ${{ secrets.CHEXX_PRIVATE_SOURCE_DEPLOY_KEY }}
+          path: source
+          persist-credentials: false
+      - name: Node 22 for CDP test scripts
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download published public 0.9.1 GitHub QA installer and SHA-256
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference='Stop'
+          gh release download v25-github-qa-0.9.1 --dir qa-installer --pattern 'app.chexx.academy.v25githubqa-win-x64-beta-Setup.exe*'
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot download 0.9.1 GitHub QA installer' }
+          $setup='qa-installer/app.chexx.academy.v25githubqa-win-x64-beta-Setup.exe'
+          if (!(Test-Path $setup) -or !(Test-Path ($setup+'.sha256'))) { throw 'Setup or checksum missing' }
+          $expected=((Get-Content ($setup+'.sha256') -Raw).Trim().Split(' ')[0]).ToUpperInvariant()
+          $actual=(Get-FileHash $setup -Algorithm SHA256).Hash
+          if ($expected -ne $actual) { throw 'Remote GitHub setup SHA-256 mismatch' }
+          Write-Host 'GITHUB_QA_DOWNLOAD_SETUP_HASH_PASS'
+      - name: Install only the isolated GitHub QA 0.9.1 application
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dest=Join-Path $env:RUNNER_TEMP 'CharliChexxV25GithubQA'
+          $p=Start-Process -FilePath 'qa-installer/app.chexx.academy.v25githubqa-win-x64-beta-Setup.exe' -ArgumentList ('--silent --installto "'+$dest+'"') -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw ('QA installer exit '+$p.ExitCode) }
+          if (!(Test-Path (Join-Path $dest 'current/CHEXX.exe')) -or !(Test-Path (Join-Path $dest 'Update.exe'))) { throw 'Wrong Velopack install structure' }
+          $env:QA_INSTALLED_EXE=(Join-Path $dest 'current/CHEXX.exe')
+          Add-Content -Path $env:GITHUB_ENV -Value ('QA_INSTALLED_EXE='+$env:QA_INSTALLED_EXE)
+          Add-Content -Path $env:GITHUB_ENV -Value ('QA_INSTALLED_ROOT='+$dest)
+          Write-Host 'GITHUB_QA_INSTALL_0_9_1_PASS'
+      - name: Seed isolated fake progression profile (never real user data)
+        run: node .github/scripts/v25-github-qa-e2e.mjs seed
+      - name: Open installed QA app and run real GithubSource download/install
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=$env:QA_INSTALLED_EXE
+          $process=Start-Process -FilePath $exe -ArgumentList @('--remote-debugging-port=9797','--disable-gpu') -PassThru
+          Write-Host ('QA_GUI_PID='+$process.Id)
+          node .github/scripts/v25-github-qa-e2e.mjs update
+          if ($LASTEXITCODE -ne 0) { throw 'GithubSource check/download/apply IPC failed' }
+      - name: Wait for real Velopack restart, verify version and progression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $manifest=Join-Path $env:QA_INSTALLED_ROOT 'current/sq.version'
+          $report=Join-Path $env:APPDATA 'chexx-academy-V25-GITHUB-QA/velopack-last-update-report.json'
+          $deadline=(Get-Date).AddMinutes(4)
+          $pass=$false
+          while((Get-Date) -lt $deadline){
+            if((Test-Path $manifest) -and (Select-String -LiteralPath $manifest -Pattern '<version>0.9.2</version>' -Quiet) -and (Test-Path $report)){
+              try {
+                $result=Get-Content $report -Raw|ConvertFrom-Json
+                if($result.state -eq 'PASS' -and $result.installedVersion -eq '0.9.2'){
+                  $pass=$true
+                  break
+                }
+              } catch {}
+            }
+            Start-Sleep -Seconds 3
+          }
+          if(!$pass){throw 'GithubSource update did not restart and produce PASS profile report'}
+          node .github/scripts/v25-github-qa-e2e.mjs verify
+          if ($LASTEXITCODE -ne 0) {throw 'Profile comparison after real GithubSource update failed'}
+          Write-Host 'V25_GITHUBSOURCE_REAL_0_9_1_TO_0_9_2_E2E_PASS'
+
+# This test never uses the user's PC or live Charli Chexx profile.
+# It has no release/tag mutation permissions.
