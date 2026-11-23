@@ -13,7 +13,7 @@ $shaOld='4150018895dbc386cb6e7a93eb55daf75d2c98cb918ea7b7321b028ad7f60c17'
 $shaNew='cb502451b7171a1e03633f56b9fb4846c4586a4e43db800b026dce4246432ffb'
 function Assert-Exit([string]$stage){if($LASTEXITCODE -ne 0){throw ('FAILED_STAGE '+$stage+' EXIT '+$LASTEXITCODE)}}
 function Sha([string]$file){return (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()}
-function NoBom([string]$file,[string]$data){[IO.File]::WriteAllText($file,$data,[Text.UTF8Encoding]::new($false))}
+function NoBom([string]$file,[string]$data){$target=if([IO.Path]::IsPathRooted($file)){$file}else{Join-Path $dir $file};[IO.File]::WriteAllText($target,$data,[Text.UTF8Encoding]::new($false))}
 Push-Location $dir
 try {
  & gh release download v25-github-qa-0.9.1 --repo $repo --pattern $old
@@ -68,4 +68,7 @@ try {
  # the temporary artifact output, so the artifact includes ONLY the delta and its evidence.
  Remove-Item -LiteralPath $old,$new -Force
  if((Test-Path -LiteralPath $old) -or (Test-Path -LiteralPath $new)){throw 'Old full package cleanup failed'}
+ foreach($required in @('fast-qa-proof.json','releases.win-x64-beta-fast.json','assets.win-x64-beta-fast.json','RELEASES-win-x64-beta-fast',($delta+'.sha256'))){
+  if(!(Test-Path -LiteralPath (Join-Path $dir $required) -PathType Leaf)){throw ('Candidate artifact missing after generation: '+$required)}
+ }
 } finally {Pop-Location}
