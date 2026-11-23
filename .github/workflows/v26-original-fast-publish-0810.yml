@@ -1,5 +1,8 @@
 name: Charli Chexx V26 ORIGINAL v0.8.10 Stable Publish (GATED)
 on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/v26-original-fast-publish-0810.yml']
   workflow_dispatch:
 permissions:
   contents: write
