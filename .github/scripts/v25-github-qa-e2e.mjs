@@ -44,6 +44,17 @@ if(mode==='seed'){
   assert.equal(dl.verifiedBy,'velopack');
   assert.ok(dl.bytes>10000000);
   console.log('GITHUB_QA_0_9_2_DOWNLOADED_BYTES='+dl.bytes);
+  // The chess UI deterministically adds level-earned unlocks after reading a new profile.
+  // Snapshot the actual persisted state immediately before the update, not the raw
+  // artificial seed, so additive unlocks are not mislabeled as updater corruption.
+  const profileBefore=await client.evaluate('window.chexx.load()');
+  assert.equal(profileBefore.qaMarker,'GHQA_E2E_NEVER_REAL_PROFILE');
+  fs.writeFileSync(baselineFile,JSON.stringify(profileBefore,null,2));
+  console.log('GITHUB_QA_PREUPDATE_PROFILE_SNAPSHOT='+JSON.stringify({
+    xp:profileBefore.xp,unlockedBoards:profileBefore.unlockedBoards?.length,
+    unlockedPieces:profileBefore.unlockedPieces?.length,
+    pending:profileBefore.sync?.pending?.length
+  }));
   const dispatched=await client.evaluate("(()=>{window._qaStatus='PENDING';window.chexx.installUpdate(true).then(()=>window._qaStatus='SCHEDULED').catch(e=>{window._qaStatus='ERROR: '+e.message;console.error(window._qaStatus)});return true})()");
   assert.equal(dispatched,true);
   console.log('GITHUB_QA_APPLY_REQUEST_DISPATCHED');
