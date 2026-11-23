@@ -37,6 +37,7 @@ jobs:
             delta-qa-092/*-fast.json
             delta-qa-092/RELEASES-win-x64-beta-fast
             delta-qa-092/fast-qa-proof.json
+            delta-qa-092/reconstructed-v25-qa-0.9.2-full.nupkg.sha256
           retention-days: 7
           if-no-files-found: error
 # Builds and validates only. No stable releases, no GitHub mutations.
