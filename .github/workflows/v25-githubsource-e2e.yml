@@ -93,4 +93,5 @@ jobs:
 
 # This test never uses the user's PC or live Charli Chexx profile.
 # It has no release/tag mutation permissions.
+# Recheck after enabling Velopack 0.9.1 -> 0.9.2 delta in the prerelease feed.
 # Regression comparison uses the persisted pre-update snapshot after initial UI normalization.
