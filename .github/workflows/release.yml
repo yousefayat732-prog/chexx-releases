@@ -63,7 +63,9 @@ jobs:
         run: npm test
       - name: Build Windows x64 NSIS installer
         working-directory: source
-        run: npm run dist
+        # electron-builder auto-publishes when CI=true unless disabled explicitly.
+        # GitHub assets are published only after all later verification steps pass.
+        run: npm run dist -- --publish never
       - name: Verify package contents, installer checksum, 144 pieces and 10 boards
         working-directory: source
         run: node scripts/verify-release.mjs
