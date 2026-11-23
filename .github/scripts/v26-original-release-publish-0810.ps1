@@ -3,10 +3,10 @@
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $repo='yousefayat732-prog/chexx-releases'
-$sourceSha='01d34764fa463dff7c982016a7314f9e63b85558'
+$sourceSha='e16c957630feaf0224fa1cb0ab1f15bd212c45b4'
 $version='0.8.10'
 $tag='v'+$version
-$candidateRunId=45253373338
+$candidateRunId=45254157338
 if($env:GITHUB_REPOSITORY -ne $repo){throw 'Unexpected release repo'}
 $source=Join-Path $env:GITHUB_WORKSPACE 'source'
 $dir=Join-Path $env:GITHUB_WORKSPACE 'candidate'
