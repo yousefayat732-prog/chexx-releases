@@ -48,8 +48,13 @@ jobs:
           $sourceCommit=(& git -C source rev-parse HEAD).Trim()
           if($LASTEXITCODE -ne 0 -or $sourceCommit -ne 'bfa8c8adcac49c5140d8b42099ce0068bb33204b'){throw 'Unexpected source commit'}
           if($channel.owner -ne 'yousefayat732-prog' -or $channel.repo -ne 'chexx-releases'){throw 'Wrong update channel'}
-          $release=gh api ('repos/'+$env:GITHUB_REPOSITORY+'/releases/tags/v'+$v) | ConvertFrom-Json
-          if($LASTEXITCODE -ne 0 -or !$release.draft -or $release.prerelease){throw 'Release must be an unpublished stable draft'}
+          # GitHub returns 404 for a DRAFT when queried by /releases/tags/<tag>.
+          # Find it through the authenticated release collection, then use the release ID.
+          $candidates=@(gh api ('repos/'+$env:GITHUB_REPOSITORY+'/releases?per_page=100') | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0){throw 'Cannot list draft releases'}
+          $matches=@($candidates | Where-Object {$_.tag_name -eq ('v'+$v) -and $_.draft -eq $true})
+          if($matches.Count -ne 1 -or $matches[0].prerelease){throw 'Exactly one unpublished stable draft required'}
+          Write-Output ('APPROVED_RELEASE_DRAFT_ID='+$matches[0].id)
       - name: Install locked dependencies
         working-directory: source
         run: npm ci
@@ -91,7 +96,12 @@ jobs:
           $sourceSha=(Get-FileHash $sourceZip -Algorithm SHA256).Hash.ToLowerInvariant()
           $sourceSum=$sourceZip+'.sha256'
           [IO.File]::WriteAllText($sourceSum,($sourceSha+'  CHEXX-'+$v+'-source.zip'+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
-          $draft=gh api ('repos/'+$env:GITHUB_REPOSITORY+'/releases/tags/'+$tag) | ConvertFrom-Json
+          $candidates=@(gh api ('repos/'+$env:GITHUB_REPOSITORY+'/releases?per_page=100') | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0){throw 'Cannot list draft releases'}
+          $matches=@($candidates | Where-Object {$_.tag_name -eq $tag -and $_.draft -eq $true})
+          if($matches.Count -ne 1){throw 'Cannot find exactly one approved draft by tag'}
+          $releaseId=$matches[0].id
+          $draft=gh api ('repos/'+$env:GITHUB_REPOSITORY+'/releases/'+$releaseId) | ConvertFrom-Json
           if($LASTEXITCODE -ne 0 -or !$draft.draft){throw 'Draft release not available'}
           $expectedNames=@('CHEXX.Setup.'+$v+'.exe','CHEXX.Setup.'+$v+'.exe.sha256','CHEXX-'+$v+'-source.zip','CHEXX-'+$v+'-source.zip.sha256','RELEASE_QA_MANIFEST.json')
           foreach($asset in $draft.assets){
@@ -101,9 +111,19 @@ jobs:
               if($LASTEXITCODE -ne 0){throw 'Cannot clean up incomplete upload'}
             }
           }
-          & gh release upload $tag $exe $sum $sourceZip $sourceSum $qa --repo $env:GITHUB_REPOSITORY
-          if($LASTEXITCODE -ne 0){throw 'One or more release assets failed to upload'}
-          $check=gh api ('repos/'+$env:GITHUB_REPOSITORY+'/releases/tags/'+$tag)|ConvertFrom-Json
+          # Upload draft assets by ID; gh release upload TAG may fail to resolve draft tags.
+          $files=@($exe,$sum,$sourceZip,$sourceSum,$qa)
+          $uploadBase=([string]$draft.upload_url).Split('{')[0]
+          $prefix='https://uploads.github.com/repos/'+$env:GITHUB_REPOSITORY+'/releases/'+$releaseId+'/assets'
+          if($uploadBase -ne $prefix){throw 'Unexpected GitHub upload host or release ID'}
+          foreach($file in $files){
+            $n=[IO.Path]::GetFileName($file)
+            $url=$uploadBase+'?name='+[Uri]::EscapeDataString($n)
+            $response=& gh api --method POST $url --input $file --header 'Content-Type: application/octet-stream' | ConvertFrom-Json
+            if($LASTEXITCODE -ne 0 -or !$response.id -or $response.state -ne 'uploaded' -or [long]$response.size -ne (Get-Item $file).Length){throw ('Asset upload not confirmed: '+$n)}
+            Write-Output ('UPLOADED='+$response.name+' BYTES='+$response.size)
+          }
+          $check=gh api ('repos/'+$env:GITHUB_REPOSITORY+'/releases/'+$releaseId)|ConvertFrom-Json
           if($LASTEXITCODE -ne 0){throw 'Cannot verify release'}
           foreach($name in $expectedNames){
             $matching=@($check.assets|Where-Object{$_.name -eq $name -and $_.state -eq 'uploaded'})
@@ -115,8 +135,11 @@ jobs:
           $notes=Join-Path $releaseDir 'release-notes.txt'
           $body='CHEXX '+$tag+' – Windows x64, verified source and SHA-256 installer. Full-screen red warning and mandatory verified profile backup before installation. All automated tests and packaged-assets checks passed. Windows installer is UNSIGNED and may trigger SmartScreen. Online one-click update is not yet verified. Corresponding source and third-party license notices are publicly attached in CHEXX-'+$v+'-source.zip.'
           [IO.File]::WriteAllText($notes,$body,[Text.UTF8Encoding]::new($false))
-          & gh release edit $tag --draft=false --notes-file $notes --repo $env:GITHUB_REPOSITORY
-          if($LASTEXITCODE -ne 0){throw 'Publish failed'}
+          # Publish by release ID; drafts cannot reliably be addressed by tag endpoints.
+          $payload=Join-Path $releaseDir 'publish-payload.json'
+          [IO.File]::WriteAllText($payload,(@{draft=$false;prerelease=$false;body=$body}|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+          $published=gh api -X PATCH ('repos/'+$env:GITHUB_REPOSITORY+'/releases/'+$releaseId) --input $payload | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $published.draft -or $published.tag_name -ne $tag){throw 'Publish failed'}
           $latest=gh api ('repos/'+$env:GITHUB_REPOSITORY+'/releases/latest')|ConvertFrom-Json
           if($LASTEXITCODE -ne 0 -or $latest.tag_name -ne $tag -or $latest.draft){throw 'Latest public release mismatch'}
           Write-Output ('CHEXX_GITHUB_RELEASE_VERIFIED=https://github.com/'+$env:GITHUB_REPOSITORY+'/releases/tag/'+$tag)
