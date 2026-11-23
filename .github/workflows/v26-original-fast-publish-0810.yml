@@ -1,12 +1,11 @@
 name: Charli Chexx V26 ORIGINAL v0.8.10 Stable Publish (GATED)
 on:
   workflow_dispatch:
-  workflow_dispatch:
 permissions:
   contents: write
   actions: read
 concurrency:
-  group: v26-original-0-8-9-release
+  group: v26-original-0-8-10-release
   cancel-in-progress: false
 jobs:
   publish:
