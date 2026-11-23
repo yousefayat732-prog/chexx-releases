@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Semantic version (e.g. 0.8.4); public source must match'
+        description: 'Semantic version; pinned private CHEXX source must match'
         required: true
         default: '0.8.4'
         type: string
@@ -18,6 +18,16 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout pinned CHEXX source (read-only deploy key)
+        uses: actions/checkout@v4
+        with:
+          repository: yousefayat732-prog/CHEXX
+          ref: bfa8c8adcac49c5140d8b42099ce0068bb33204b
+          ssh-key: ${{ secrets.CHEXX_PRIVATE_SOURCE_DEPLOY_KEY }}
+          path: source
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -35,6 +45,8 @@ jobs:
           $pkg=Get-Content source/package.json -Raw|ConvertFrom-Json
           $channel=Get-Content source/update-channel.json -Raw|ConvertFrom-Json
           if($pkg.version -ne $v){throw 'Source package version mismatch'}
+          $sourceCommit=(& git -C source rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $sourceCommit -ne 'bfa8c8adcac49c5140d8b42099ce0068bb33204b'){throw 'Unexpected source commit'}
           if($channel.owner -ne 'yousefayat732-prog' -or $channel.repo -ne 'chexx-releases'){throw 'Wrong update channel'}
           $release=gh api ('repos/'+$env:GITHUB_REPOSITORY+'/releases/tags/v'+$v) | ConvertFrom-Json
           if($LASTEXITCODE -ne 0 -or !$release.draft -or $release.prerelease){throw 'Release must be an unpublished stable draft'}
@@ -73,7 +85,8 @@ jobs:
           $manifest.status='RELEASE_VERIFIED_ONLINE_UPDATE_TEST_PENDING'
           $manifest | ConvertTo-Json -Depth 10 | Set-Content $qa -Encoding utf8
           $sourceZip=Join-Path $releaseDir ('CHEXX-'+$v+'-source.zip')
-          & tar.exe -a -cf $sourceZip -C $sourceDir .
+          # Archive tracked source only: no node_modules, build output or recursive archive.
+          & git -C $sourceDir archive --format=zip HEAD -o $sourceZip
           if($LASTEXITCODE -ne 0 -or !(Test-Path $sourceZip)){throw 'Source archive creation failed'}
           $sourceSha=(Get-FileHash $sourceZip -Algorithm SHA256).Hash.ToLowerInvariant()
           $sourceSum=$sourceZip+'.sha256'
@@ -100,8 +113,7 @@ jobs:
           if([long]$installerAsset.size -ne (Get-Item $exe).Length){throw 'Installer size mismatch'}
           if($installerAsset.digest -and $installerAsset.digest -ne ('sha256:'+$digest)){throw 'GitHub-reported installer digest mismatch'}
           $notes=Join-Path $releaseDir 'release-notes.txt'
-          $sourceLink='https://github.com/'+$env:GITHUB_REPOSITORY+'/tree/'+$env:GITHUB_SHA+'/source'
-          $body='CHEXX '+$tag+' – Windows x64, verified source and SHA-256 installer. Full-screen red warning and mandatory verified profile backup before installation. All automated tests and packaged-assets checks passed. Windows installer is UNSIGNED and may trigger SmartScreen. Online one-click update is not yet verified. Public corresponding source: '+$sourceLink
+          $body='CHEXX '+$tag+' – Windows x64, verified source and SHA-256 installer. Full-screen red warning and mandatory verified profile backup before installation. All automated tests and packaged-assets checks passed. Windows installer is UNSIGNED and may trigger SmartScreen. Online one-click update is not yet verified. Corresponding source and third-party license notices are publicly attached in CHEXX-'+$v+'-source.zip.'
           [IO.File]::WriteAllText($notes,$body,[Text.UTF8Encoding]::new($false))
           & gh release edit $tag --draft=false --notes-file $notes --repo $env:GITHUB_REPOSITORY
           if($LASTEXITCODE -ne 0){throw 'Publish failed'}
