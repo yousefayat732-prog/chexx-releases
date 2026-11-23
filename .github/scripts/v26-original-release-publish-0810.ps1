@@ -34,7 +34,7 @@ if($pkg.version -ne $version -or $pkg.build.appId -ne 'app.chexx.academy' -or
    $pkg.build.win.target -ne 'nsis'){throw 'Wrong NSIS product identity'}
 $latest=gh api ('repos/'+$repo+'/releases/latest')|ConvertFrom-Json
 ExitOk 'LATEST_BEFORE'
-if($latest.tag_name -ne 'v0.8.9' -or $latest.prerelease){throw 'Stable channel not at expected 0.8.8'}
+if($latest.tag_name -ne 'v0.8.9' -or $latest.prerelease){throw 'Stable channel not at expected 0.8.9'}
 $existing=@(gh api ('repos/'+$repo+'/releases?per_page=100')|ConvertFrom-Json)
 ExitOk 'EXISTING_RELEASES'
 if(@($existing|Where-Object{$_.tag_name -eq $tag}).Count -ne 0){throw 'Refuse to overwrite existing v0.8.10'}
