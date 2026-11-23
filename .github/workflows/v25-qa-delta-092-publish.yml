@@ -25,6 +25,11 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           name: charli-chexx-v25-qa-delta-092-verified-unpublished
           path: downloaded-delta
+      - name: Verify artifact layout before any GitHub release mutation
+        shell: pwsh
+        run: |
+          Get-ChildItem downloaded-delta -Recurse -File | ForEach-Object { Write-Host ('CANDIDATE_FILE='+$_.FullName) }
+          if (!@(Get-ChildItem downloaded-delta -Recurse -File -Filter 'fast-qa-proof.json').Count) { throw 'Verified proof was not included in artifact' }
       - name: Verify and publish only V25 test delta into existing prerelease
         shell: pwsh
         env:
