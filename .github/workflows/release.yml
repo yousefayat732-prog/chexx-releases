@@ -105,7 +105,15 @@ jobs:
           $releaseId=$matches[0].id
           $draft=gh api ('repos/'+$env:GITHUB_REPOSITORY+'/releases/'+$releaseId) | ConvertFrom-Json
           if($LASTEXITCODE -ne 0 -or !$draft.draft){throw 'Draft release not available'}
-          $expectedNames=@('CHEXX.Setup.'+$v+'.exe','CHEXX.Setup.'+$v+'.exe.sha256','CHEXX-'+$v+'-source.zip','CHEXX-'+$v+'-source.zip.sha256','RELEASE_QA_MANIFEST.json')
+          # Parenthesize PowerShell expressions: without this, array elements
+          # can collapse into one concatenated string in an @() expression.
+          $expectedNames=@(
+            ('CHEXX.Setup.'+$v+'.exe'),
+            ('CHEXX.Setup.'+$v+'.exe.sha256'),
+            ('CHEXX-'+$v+'-source.zip'),
+            ('CHEXX-'+$v+'-source.zip.sha256'),
+            'RELEASE_QA_MANIFEST.json'
+          )
           foreach($asset in $draft.assets){
             if($asset.name -in $expectedNames){
               if($asset.state -ne 'starter'){throw ('Existing complete asset requires manual review: '+$asset.name)}
