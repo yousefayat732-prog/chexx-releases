@@ -26,7 +26,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           repository: yousefayat732-prog/chexx-releases
-          run-id: 45254157338
+          run-id: 45256761338
           github-token: ${{ secrets.GITHUB_TOKEN }}
           name: charli-chexx-v26-original-0.8.10-nsis-candidate
           path: candidate
