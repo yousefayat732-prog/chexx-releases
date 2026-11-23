@@ -6,7 +6,7 @@ $repo='yousefayat732-prog/chexx-releases'
 $sourceSha='e16c957630feaf0224fa1cb0ab1f15bd212c45b4'
 $version='0.8.10'
 $tag='v'+$version
-$candidateRunId=45254157338
+$candidateRunId=45256761338
 if($env:GITHUB_REPOSITORY -ne $repo){throw 'Unexpected release repo'}
 $source=Join-Path $env:GITHUB_WORKSPACE 'source'
 $dir=Join-Path $env:GITHUB_WORKSPACE 'candidate'
@@ -71,7 +71,7 @@ Charli Chexx v0.8.10 — ORIGINAL Windows version (NSIS), accelerated safe downl
 • Existing mandatory red backup warning, profile integrity checks, NSIS helper and Windows installation identity are unchanged.
 • Preserves all v0.8.8 game content: bot clocks, training, 240 chess pieces, 10 boards, 8 planets and offline rewards.
 • Does not ship private original Chess.com-derived WAVs. Existing personal audio files remain private.
-• Verified by 123/123 Windows source tests, a packaged installer QA gate, and an isolated real 0.8.8 -> 0.8.10 Windows NSIS update including a verified profile backup.
+• Verified by 124/124 Windows source tests, a packaged installer QA gate, and an isolated real 0.8.8 -> 0.8.10 Windows NSIS update including a verified profile backup.
 • Fixes streamed download listener accumulation observed on a real 362 MB GitHub download with Node.js streams; now pipeline-based and stress-tested with 124/124 Windows tests.
 • This is an NSIS-compatible stable update, NOT the separate Velopack Beta. 50KB Velopack delta updates only work after a tested one-time installer migration. Existing 0.8.8 must still acquire this first full installer.
 • Unsigned Windows installer may trigger Windows SmartScreen. No paid external services or credentials required.
