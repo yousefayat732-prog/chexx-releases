@@ -93,3 +93,4 @@ jobs:
 
 # This test never uses the user's PC or live Charli Chexx profile.
 # It has no release/tag mutation permissions.
+# Regression comparison uses the persisted pre-update snapshot after initial UI normalization.
