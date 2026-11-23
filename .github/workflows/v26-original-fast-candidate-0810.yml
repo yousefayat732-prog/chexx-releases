@@ -2,7 +2,7 @@ name: Charli Chexx V26 ORIGINAL 0.8.10 — Candidate and isolated NSIS upgrade Q
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/v26-original-fast-candidate.yml']
+    paths: ['.github/workflows/v26-original-fast-candidate-0810.yml']
   workflow_dispatch:
 permissions:
   contents: read
