@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: v26-original-0-8-9-candidate
+  group: v26-original-0-8-10-candidate
   cancel-in-progress: false
 jobs:
   build:
@@ -175,10 +175,10 @@ jobs:
             if(Test-Path $log){Write-Host (Get-Content $log -Raw)}
             throw ('Isolated NSIS helper failed '+$process.ExitCode)
           }
-          if((Get-Item $exe).VersionInfo.ProductVersion -notmatch '^0\.8\.9(?:\.0)?$'){throw 'New original 0.8.10 version not installed'}
+          if((Get-Item $exe).VersionInfo.ProductVersion -notmatch '^0\.8\.10(?:\.0)?$'){throw 'New original 0.8.10 version not installed'}
           $result=Get-Content (Join-Path $stage 'update-helper-result.json') -Raw|ConvertFrom-Json
           if($result.state -ne 'INSTALLER_VERIFIED'){throw 'NSIS helper did not verify installed setup'}
           node .github/scripts/v26-original-update-profile-0810.cjs verify
           if($LASTEXITCODE -ne 0){throw 'Game progress corrupted after original app upgrade'}
-          Write-Host 'V26_ORIGINAL_REAL_NSIS_0_8_8_TO_0_8_9_UPGRADE_PASS'
+          Write-Host 'V26_ORIGINAL_REAL_NSIS_0_8_8_TO_0_8_10_UPGRADE_PASS'
 # This workflow does not publish a release or touch any non-runner Windows device.
