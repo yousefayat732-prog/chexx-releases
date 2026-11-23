@@ -1,0 +1,42 @@
+name: Charli Chexx V25 FAST QA DELTA — SHA-verified build only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/v25-qa-delta-092-build.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-verify:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - name: Checkout QA release scripts (read only)
+        uses: actions/checkout@v4
+      - name: .NET SDK for Velopack CLI
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install official Velopack 1.2.161 CLI
+        shell: pwsh
+        run: |
+          dotnet tool install --global vpk --version 1.2.161
+          if($LASTEXITCODE -ne 0){throw 'Velopack CLI missing'}
+      - name: Download fixed original packages, build delta, reconstruct and verify hash
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./.github/scripts/v25-qa-delta-092-build.ps1
+      - name: Preserve candidate metadata for review (not published)
+        uses: actions/upload-artifact@v4
+        with:
+          name: charli-chexx-v25-qa-delta-092-verified-unpublished
+          path: |
+            delta-qa-092/*-delta.nupkg
+            delta-qa-092/*-delta.nupkg.sha256
+            delta-qa-092/*-fast.json
+            delta-qa-092/RELEASES-win-x64-beta-fast
+            delta-qa-092/fast-qa-proof.json
+          retention-days: 7
+          if-no-files-found: error
+# Builds and validates only. No stable releases, no GitHub mutations.
