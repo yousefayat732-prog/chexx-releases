@@ -1,16 +1,19 @@
 name: CHEXX Verified Windows Release
 on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/release.yml']
   workflow_dispatch:
     inputs:
       version:
         description: 'Semantic version; pinned private CHEXX source must match'
         required: true
-        default: '0.8.7'
+        default: '0.8.8'
         type: string
 permissions:
   contents: write
 concurrency:
-  group: chexx-release-${{ inputs.version }}
+  group: chexx-release-${{ inputs.version || '0.8.8' }}
   cancel-in-progress: false
 jobs:
   release:
@@ -24,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: yousefayat732-prog/CHEXX
-          ref: 281005816a8487f9d4d0b890ce26460293608a53
+          ref: 1b5c7dc012a5b450767d97a67b4d3bd47aa06ece
           ssh-key: ${{ secrets.CHEXX_PRIVATE_SOURCE_DEPLOY_KEY }}
           path: source
           persist-credentials: false
@@ -36,7 +39,7 @@ jobs:
       - name: Verify approved source and draft target
         shell: pwsh
         env:
-          TARGET_VERSION: ${{ inputs.version }}
+          TARGET_VERSION: ${{ inputs.version || '0.8.8' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference='Stop'
@@ -46,14 +49,21 @@ jobs:
           $channel=Get-Content source/update-channel.json -Raw|ConvertFrom-Json
           if($pkg.version -ne $v){throw 'Source package version mismatch'}
           $sourceCommit=(& git -C source rev-parse HEAD).Trim()
-          if($LASTEXITCODE -ne 0 -or $sourceCommit -ne '281005816a8487f9d4d0b890ce26460293608a53'){throw 'Unexpected source commit'}
+          if($LASTEXITCODE -ne 0 -or $sourceCommit -ne '1b5c7dc012a5b450767d97a67b4d3bd47aa06ece'){throw 'Unexpected source commit'}
           if($channel.owner -ne 'yousefayat732-prog' -or $channel.repo -ne 'chexx-releases'){throw 'Wrong update channel'}
           # GitHub returns 404 for a DRAFT when queried by /releases/tags/<tag>.
           # Find it through the authenticated release collection, then use the release ID.
           $candidates=@(gh api ('repos/'+$env:GITHUB_REPOSITORY+'/releases?per_page=100') | ConvertFrom-Json)
           if($LASTEXITCODE -ne 0){throw 'Cannot list draft releases'}
           $matches=@($candidates | Where-Object {$_.tag_name -eq ('v'+$v) -and $_.draft -eq $true})
-          if($matches.Count -ne 1 -or $matches[0].prerelease){throw 'Exactly one unpublished stable draft required'}
+          if($matches.Count -gt 1 -or ($matches.Count -eq 1 -and $matches[0].prerelease)){throw 'Conflicting release drafts'}
+          if($matches.Count -eq 0){
+            $allTags=@($candidates | Where-Object {$_.tag_name -eq ('v'+$v)})
+            if($allTags.Count -ne 0){throw 'Version already released; refusing overwrite'}
+            $newDraft=& gh api -X POST ('repos/'+$env:GITHUB_REPOSITORY+'/releases') -f ('tag_name=v'+$v) -f ('name=Charli Chexx '+$v+' - V21-V24') -f 'target_commitish=main' -F draft=true -F prerelease=false | ConvertFrom-Json
+            if($LASTEXITCODE -ne 0 -or !$newDraft.draft -or !$newDraft.id){throw 'Cannot create safe draft release'}
+            $matches=@($newDraft)
+          }
           Write-Output ('APPROVED_RELEASE_DRAFT_ID='+$matches[0].id)
       - name: Install locked dependencies
         working-directory: source
@@ -66,13 +76,13 @@ jobs:
         # electron-builder auto-publishes when CI=true unless disabled explicitly.
         # GitHub assets are published only after all later verification steps pass.
         run: npm run dist -- --publish never
-      - name: Verify package contents, installer checksum, 144 pieces and 10 boards
+      - name: Verify 240 packaged chess pieces, 8 previews, 10 boards and installer checksum
         working-directory: source
         run: node scripts/verify-release.mjs
       - name: Attach verified assets and publish only on complete success
         shell: pwsh
         env:
-          TARGET_VERSION: ${{ inputs.version }}
+          TARGET_VERSION: ${{ inputs.version || '0.8.8' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference='Stop'
@@ -88,7 +98,7 @@ jobs:
           $expected=((Get-Content $sum -Raw).Trim().Split(' ')[0]).ToLowerInvariant()
           if($digest -ne $expected){throw 'SHA256 installer mismatch'}
           $manifest=Get-Content $qa -Raw|ConvertFrom-Json
-          if($manifest.version -ne $v -or $manifest.boardsVerified -ne 10 -or $manifest.piecesVerified -ne 144 -or $manifest.privateAudioBundled -or !$manifest.updateHelperPackaged -or !$manifest.updateLauncherPackaged){throw 'Release QA manifest mismatch'}
+          if($manifest.version -ne $v -or $manifest.boardsVerified -ne 10 -or $manifest.piecesVerified -ne 240 -or $manifest.privateAudioBundled -or !$manifest.updateHelperPackaged -or !$manifest.updateLauncherPackaged){throw 'Release QA manifest mismatch'}
           $manifest.status='RELEASE_VERIFIED_ONLINE_UPDATE_TEST_PENDING'
           $manifest | ConvertTo-Json -Depth 10 | Set-Content $qa -Encoding utf8
           $sourceZip=Join-Path $releaseDir ('CHEXX-'+$v+'-source.zip')
@@ -143,7 +153,7 @@ jobs:
           if([long]$installerAsset.size -ne (Get-Item $exe).Length){throw 'Installer size mismatch'}
           if($installerAsset.digest -and $installerAsset.digest -ne ('sha256:'+$digest)){throw 'GitHub-reported installer digest mismatch'}
           $notes=Join-Path $releaseDir 'release-notes.txt'
-          $body='Charli Chexx '+$tag+' – Windows x64, verified source and SHA-256 installer. Full-screen red warning and mandatory verified profile backup before installation. V24 hotfix: reworked Windows updater launcher, preserving verified SHA-256 checks and mandatory full-screen red profile-backup warning. V20 features remain: 17 chapters, 186 validated lessons, 105 CC0 opening variations and right-drag arrows. Silver-green ten-resolution CC Windows icon; the cyan rook remains beside CC in the app header. Legacy appId, CHEXX.exe and profile location are preserved. All automated tests and packaged-assets checks passed. Windows installer is UNSIGNED and may trigger SmartScreen. Online one-click update is not yet verified. Corresponding source and third-party license notices are publicly attached in CHEXX-'+$v+'-source.zip.'
+          $body='Charli Chexx '+$tag+' – Windows x64 V21-V24 update. Adds timed bot games (Bullet/Blitz/Rapid/Daily), per-bot statistics, move-review and result UI, eight solar-system piece sets unlocking at levels 13-20, and 8 preview cards. Contains 240 complete chess piece images and 10 boards. V22 audio settings now expose five themes with independent volume categories; the original private WAVs are NOT bundled, as redistribution permission is not confirmed. Existing CHEXX.exe name, appId, profile storage, XP, rewards and saves remain unchanged. Updater retains required red backup acknowledgment and SHA-256 checks, plus persistent verification and helper diagnostics. All source tests and packaged-asset verification must pass before publication. Windows installer is unsigned and can trigger SmartScreen. A real GitHub-to-installed-app one-click update is not yet independently verified. Source code and license notices are in CHEXX-'+$v+'-source.zip.'
           [IO.File]::WriteAllText($notes,$body,[Text.UTF8Encoding]::new($false))
           # Publish by release ID; drafts cannot reliably be addressed by tag endpoints.
           $payload=Join-Path $releaseDir 'publish-payload.json'
