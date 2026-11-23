@@ -4,8 +4,11 @@ $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $repo='yousefayat732-prog/chexx-releases'
 if($env:GITHUB_REPOSITORY -ne $repo){throw 'Wrong repository'}
-$dir=Join-Path $env:GITHUB_WORKSPACE 'downloaded-delta'
-$backupDir=Join-Path $dir 'old-release-metadata'
+$candidateRoot=Join-Path $env:GITHUB_WORKSPACE 'downloaded-delta'
+$candidates=@(Get-ChildItem -LiteralPath $candidateRoot -Recurse -File -Filter 'fast-qa-proof.json')
+if($candidates.Count -ne 1){throw ('Expected one verified proof in artifact, found '+$candidates.Count)}
+$dir=$candidates[0].Directory.FullName
+$backupDir=Join-Path $candidateRoot 'old-release-metadata'
 New-Item -ItemType Directory $backupDir -Force|Out-Null
 $tag='v25-github-qa-0.9.2'
 $expectedIdentity='app.chexx.academy.v25githubqa'
