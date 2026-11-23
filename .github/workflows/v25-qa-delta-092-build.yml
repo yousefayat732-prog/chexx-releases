@@ -35,3 +35,4 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 # Builds and validates only. No stable releases, no GitHub mutations.
+# Clean temporary source packages only after exact delta reconstruction.
