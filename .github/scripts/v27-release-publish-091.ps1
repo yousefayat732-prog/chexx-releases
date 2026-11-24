@@ -3,7 +3,7 @@
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $repo='yousefayat732-prog/chexx-releases'
-$sourceSha='b364ed2676b8117d807647a7020323ea99f70c0f'
+$sourceSha='34462dc014039b0d7037af408e75e8e961606065'
 $version='0.9.1'
 $tag='v'+$version
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows'){throw 'Only gated Windows GitHub workflow may publish'}
