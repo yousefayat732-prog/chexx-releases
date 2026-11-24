@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: yousefayat732-prog/CHEXX
-          ref: e6b68961d4aea85d759bd25cb6d8b7b9c350cfa6
+          ref: 0a20e1ae3a9df637e26d453b481df45a5a15fd2f
           ssh-key: ${{ secrets.CHEXX_PRIVATE_SOURCE_DEPLOY_KEY }}
           path: source
           persist-credentials: false
@@ -35,7 +35,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $hash=(& git -C source rev-parse HEAD).Trim()
-          if($hash -ne 'e6b68961d4aea85d759bd25cb6d8b7b9c350cfa6'){throw 'Wrong V27 private source'}
+          if($hash -ne '0a20e1ae3a9df637e26d453b481df45a5a15fd2f'){throw 'Wrong V27 private source'}
           $pkg=Get-Content source/package.json -Raw|ConvertFrom-Json
           $channel=Get-Content source/update-channel.json -Raw|ConvertFrom-Json
           if($pkg.version -ne '0.9.2' -or $pkg.build.appId -ne 'app.chexx.academy' -or
@@ -88,7 +88,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: yousefayat732-prog/CHEXX
-          ref: e6b68961d4aea85d759bd25cb6d8b7b9c350cfa6
+          ref: 0a20e1ae3a9df637e26d453b481df45a5a15fd2f
           ssh-key: ${{ secrets.CHEXX_PRIVATE_SOURCE_DEPLOY_KEY }}
           path: source
           persist-credentials: false
@@ -216,7 +216,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: yousefayat732-prog/CHEXX
-          ref: e6b68961d4aea85d759bd25cb6d8b7b9c350cfa6
+          ref: 0a20e1ae3a9df637e26d453b481df45a5a15fd2f
           ssh-key: ${{ secrets.CHEXX_PRIVATE_SOURCE_DEPLOY_KEY }}
           path: source
           persist-credentials: false
