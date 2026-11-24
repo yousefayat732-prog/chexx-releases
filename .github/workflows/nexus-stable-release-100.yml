@@ -1,0 +1,254 @@
+name: Charli Chexx 1.00.0 Nexus — isolated release candidate
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/nexus-stable-release-100.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: nexus-stable-1-0-0
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - name: Checkout public CI scripts
+        uses: actions/checkout@v4
+      - name: Checkout pinned original Charli Chexx 1.0.0 (private source)
+        uses: actions/checkout@v4
+        with:
+          repository: yousefayat732-prog/CHEXX
+          ref: bfe9d991831a097c2ec5a98e10632bf2d351e1cf
+          ssh-key: ${{ secrets.CHEXX_PRIVATE_SOURCE_DEPLOY_KEY }}
+          path: source
+          persist-credentials: false
+      - name: Node.js 22 with approved lockfile
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - name: Verify exact source identity and original NSIS compatibility
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $hash=(& git -C source rev-parse HEAD).Trim()
+          if($hash -ne 'bfe9d991831a097c2ec5a98e10632bf2d351e1cf'){throw 'Wrong V27 private source'}
+          $pkg=Get-Content source/package.json -Raw|ConvertFrom-Json
+          $channel=Get-Content source/update-channel.json -Raw|ConvertFrom-Json
+          if($pkg.version -ne '1.0.0' -or $pkg.build.appId -ne 'app.chexx.academy' -or
+             $pkg.build.win.target -ne 'nsis' -or $channel.owner -ne 'yousefayat732-prog' -or
+             $channel.repo -ne 'chexx-releases'){throw 'Original NSIS product identity/channel mismatch'}
+          if($pkg.dependencies.PSObject.Properties.Name -contains 'velopack'){throw 'Unapproved NSIS to Velopack switch'}
+      - name: Install locked dependencies
+        working-directory: source
+        run: npm ci
+      - name: Run all original application and fast-download tests
+        working-directory: source
+        run: npm test
+      - name: Build unsigned verified original Windows NSIS installer
+        working-directory: source
+        run: npm run dist -- --publish never
+      - name: Verify all production assets, NSIS helper and fast downloader
+        working-directory: source
+        shell: pwsh
+        run: |
+          node scripts/verify-release.mjs
+          if($LASTEXITCODE -ne 0){throw 'QA asset verification failed'}
+          node -e "const a=require('@electron/asar');const p=a.listPackage('release-v1.0.0/win-unpacked/resources/app.asar');if(!p.some(x=>x.includes('accelerated-download.cjs')))process.exit(1);console.log('NEXUS_FAST_NSIS_DOWNLOADER_PACKAGED_PASS')"
+          if($LASTEXITCODE -ne 0){throw 'Fast downloader absent from installer'}
+          node scripts/qa-v27-unpacked-audio.mjs
+          if($LASTEXITCODE -ne 0){throw 'CC0 audio packaging verification failed'}
+          $qa=Get-Content 'release-v1.0.0/RELEASE_QA_MANIFEST.json' -Raw|ConvertFrom-Json
+          if($qa.piecesVerified -ne 372 -or $qa.boardsVerified -ne 31 -or !$qa.cc0AudioBundled -or $qa.cc0WavFiles -ne 79 -or $qa.cc0AudioThemes -ne 5 -or
+             !$qa.updateHelperPackaged -or !$qa.updateLauncherPackaged -or
+             $qa.version -ne '1.0.0'){throw 'Incorrect production QA manifest'}
+      - name: Preserve candidate artifact for migration test before stable release
+        uses: actions/upload-artifact@v4
+        with:
+          name: charli-chexx-nexus-1.0.0-nsis-candidate
+          path: |
+            source/release-v1.0.0/CHEXX Setup 1.0.0.exe
+            source/release-v1.0.0/CHEXX Setup 1.0.0.exe.sha256
+            source/release-v1.0.0/CHEXX Setup 1.0.0.exe.blocks.json
+            source/release-v1.0.0/RELEASE_QA_MANIFEST.json
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+
+  isolated-upgrade:
+    needs: build
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - name: Checkout QA script
+        uses: actions/checkout@v4
+      - name: Checkout pinned private source for data integrity checks
+        uses: actions/checkout@v4
+        with:
+          repository: yousefayat732-prog/CHEXX
+          ref: bfe9d991831a097c2ec5a98e10632bf2d351e1cf
+          ssh-key: ${{ secrets.CHEXX_PRIVATE_SOURCE_DEPLOY_KEY }}
+          path: source
+          persist-credentials: false
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download candidate 1.0.0 only from successful build job
+        uses: actions/download-artifact@v4
+        with:
+          name: charli-chexx-nexus-1.0.0-nsis-candidate
+          path: candidate
+      - name: Download official previous stable 0.9.2 and verify SHA-256
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference='Stop'
+          gh release download v0.9.2 --repo yousefayat732-prog/chexx-releases --dir old-stable --pattern 'CHEXX.Setup.0.9.2.exe*'
+          if($LASTEXITCODE -ne 0){throw 'Cannot fetch original 0.9.2 release'}
+          $old='old-stable/CHEXX.Setup.0.9.2.exe'
+          $side=$old+'.sha256'
+          if(!(Test-Path $old) -or !(Test-Path $side)){throw 'Old installer or checksum absent'}
+          $actual=(Get-FileHash $old -Algorithm SHA256).Hash.ToLowerInvariant()
+          $text=(Get-Content $side -Raw).Trim()
+          if($actual -ne 'f8b9def9a30cc24791c29afc889f3dc77261bd2bbba3e3edbcf95af0d4838794' -or
+             !$text.ToLowerInvariant().Contains($actual)){throw 'Old stable checksum mismatch'}
+          Write-Host 'OLD_NSIS_0_9_1_GITHUB_SOURCE_VERIFIED'
+      - name: Install old 0.9.2 on disposable Windows runner and seed QA progression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $installer=(Resolve-Path 'old-stable/CHEXX.Setup.0.9.2.exe').Path
+          $p=Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru
+          if($p.ExitCode -ne 0){throw ('Old NSIS install failed '+$p.ExitCode)}
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/CHEXX/CHEXX.exe'
+          if(!(Test-Path $exe)){throw 'Old installed program missing'}
+          if((Get-Item $exe).VersionInfo.ProductVersion -notmatch '^0\.9\.2(?:\.0)?$'){throw 'Old installed version mismatch'}
+          node .github/scripts/nexus-update-profile-100.cjs seed
+          if($LASTEXITCODE -ne 0){throw 'Cannot seed CI-only fake profile'}
+          Write-Host 'OLD_NSIS_RUNNING_QA_TARGET_READY'
+      - name: Real isolated NSIS 0.9.2 to 1.0.0 install with required backups
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=@(Get-ChildItem candidate -File -Recurse -Filter 'CHEXX Setup 1.0.0.exe')
+          if($candidate.Count -ne 1){throw 'Wrong candidate artifact'}
+          $side=$candidate[0].FullName+'.sha256'
+          if(!(Test-Path $side)){throw 'Candidate SHA sidecar missing'}
+          $hash=(Get-FileHash $candidate[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if(!((Get-Content $side -Raw).ToLowerInvariant().Contains($hash))){throw 'Candidate SHA mismatch'}
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/CHEXX/CHEXX.exe'
+          $old=Start-Process -FilePath $exe -ArgumentList '--disable-gpu' -PassThru
+          Start-Sleep -Seconds 4
+          node .github/scripts/nexus-update-profile-100.cjs arm $candidate[0].FullName
+          if($LASTEXITCODE -ne 0){throw 'Could not arm verified profile backup'}
+          $stage=Join-Path $env:RUNNER_TEMP 'original-nsis-upgrade-stage'
+          New-Item -ItemType Directory $stage -Force|Out-Null
+          $staged=Join-Path $stage 'CHEXX Setup 1.0.0.exe'
+          Copy-Item -LiteralPath $candidate[0].FullName -Destination $staged
+          $job=[ordered]@{
+             schema=1;appId='app.chexx.academy';appExe=$exe;installDir=(Split-Path -Parent $exe);
+             parentPid=$old.Id;oldVersion='0.9.2';targetVersion='1.0.0';
+             installerPath=$staged;sha256=$hash;bytes=[long]$candidate[0].Length
+          }
+          $jobPath=Join-Path $stage 'job.json'
+          [IO.File]::WriteAllText($jobPath,($job|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
+          $helper=(Resolve-Path 'source/electron/update-helper.ps1').Path
+          $arguments="-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$helper`" -JobPath `"$jobPath`""
+          $process=Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -PassThru
+          $ack=Join-Path $stage 'update-helper-started.json'
+          $deadline=(Get-Date).AddSeconds(40)
+          while(!(Test-Path $ack) -and (Get-Date) -lt $deadline){Start-Sleep -Milliseconds 350}
+          if(!(Test-Path $ack)){throw 'NSIS helper start not acknowledged'}
+          $ackData=Get-Content $ack -Raw|ConvertFrom-Json
+          if($ackData.state -ne 'WAITING_FOR_APP_EXIT' -or $ackData.pid -ne $process.Id){
+            throw 'NSIS helper ack inconsistent'
+          }
+          # Disposable CI runner: close only processes for the verified target executable.
+          Get-CimInstance Win32_Process | Where-Object {$_.ExecutablePath -eq $exe} |ForEach-Object{
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+          }
+          if(!$process.WaitForExit(210000)){throw 'NSIS migration helper timed out'}
+          if($process.ExitCode -ne 0){
+            $log=Join-Path $stage 'update-helper-result.json'
+            if(Test-Path $log){Write-Host (Get-Content $log -Raw)}
+            throw ('Isolated NSIS helper failed '+$process.ExitCode)
+          }
+          if((Get-Item $exe).VersionInfo.ProductVersion -notmatch '^1\.0\.0(?:\.0)?$'){throw 'New original 1.0.0 version not installed'}
+          $result=Get-Content (Join-Path $stage 'update-helper-result.json') -Raw|ConvertFrom-Json
+          if($result.state -ne 'INSTALLER_VERIFIED'){throw 'NSIS helper did not verify installed setup'}
+          node .github/scripts/nexus-update-profile-100.cjs verify
+          if($LASTEXITCODE -ne 0){throw 'Game progress corrupted after original app upgrade'}
+          Write-Host 'NEXUS_ORIGINAL_REAL_NSIS_0_9_1_TO_0_9_2_UPGRADE_PASS'
+      - name: Validate all installed CC0 sounds after the upgrade
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $audio=Join-Path $env:LOCALAPPDATA 'Programs/CHEXX/resources/audio/Chess'
+          $manifest=Get-Content (Join-Path $audio 'audio_manifest.json') -Raw|ConvertFrom-Json
+          if(@(Get-ChildItem $audio -Filter '*.wav' -Recurse -File).Count -ne 79){throw 'Installed audio count mismatch'}
+          foreach($item in ($manifest.events|Where-Object file)){
+            if((Get-FileHash (Join-Path $audio $item.file) -Algorithm SHA256).Hash -ne $item.sha256){throw 'Installed sound checksum mismatch'}
+          }
+          foreach($theme in @('Classic_Green','Metal','Newspaper','Space','Graffiti')){
+            $item=$manifest.events|Where-Object {$_.theme -eq $theme -and $_.event -eq 'Move'}|Select-Object -First 1
+            if(!$item){throw "Missing theme $theme"}
+            $player=New-Object System.Media.SoundPlayer
+            $player.SoundLocation=Join-Path $audio $item.file
+            $player.Load()
+            $player.Dispose()
+          }
+          Write-Output 'NEXUS_INSTALLED_FIVE_AUDIO_THEMES_PASS'
+
+
+
+
+  publish:
+    needs: [build, isolated-upgrade]
+    runs-on: windows-2022
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: charli-chexx-nexus-1.0.0-nsis-candidate
+          path: candidate
+      - name: Verify exact tested installer and publish stable update
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='yousefayat732-prog/chexx-releases'
+          $tag='v1.0.0'
+          $existing=gh release list --repo $repo --limit 100 --json tagName | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0){throw 'Cannot query release list'}
+          if($existing.tagName -contains $tag){throw 'Release already exists; never overwrite'}
+          $candidate=@(Get-ChildItem candidate -File -Recurse -Filter 'CHEXX Setup 1.0.0.exe')
+          if($candidate.Count -ne 1){throw 'Unexpected candidate'}
+          $exe=$candidate[0].FullName
+          $hash=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $side=(Get-Content ($exe+'.sha256') -Raw).Trim()
+          $blocks=Get-Content ($exe+'.blocks.json') -Raw | ConvertFrom-Json
+          $qa=Get-Content (Join-Path $candidate[0].DirectoryName 'RELEASE_QA_MANIFEST.json') -Raw|ConvertFrom-Json
+          if(!$side.Contains($hash) -or $blocks.sha256 -ne $hash -or $blocks.bytes -ne $candidate[0].Length -or $qa.installerSha256 -ne $hash -or $qa.version -ne '1.0.0'){throw 'Release integrity mismatch'}
+          New-Item -ItemType Directory publish -Force|Out-Null
+          $dest='publish/CHEXX.Setup.1.0.0.exe'
+          Copy-Item $exe $dest
+          [IO.File]::WriteAllText((Join-Path (Resolve-Path publish).Path 'CHEXX.Setup.1.0.0.exe.sha256'),$hash+'  CHEXX Setup 1.0.0.exe'+[Environment]::NewLine)
+          Copy-Item ($exe+'.blocks.json') ($dest+'.blocks.json')
+          Copy-Item (Join-Path $candidate[0].DirectoryName 'RELEASE_QA_MANIFEST.json') publish/
+          gh release create $tag --repo $repo --draft --title 'Charli Chexx 1.0.0 - Project Nexus' --notes 'Nexus online multiplayer, cloud sync, community, tournaments, Studio, training, localization and resilient verified updater. Automated tests and isolated Windows upgrade required before publication.' $dest ($dest+'.sha256') ($dest+'.blocks.json') 'publish/RELEASE_QA_MANIFEST.json'
+          if($LASTEXITCODE -ne 0){throw 'Draft creation or upload failed'}
+          $release=gh release view $tag --repo $repo --json assets,isDraft | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or !$release.isDraft){throw 'Draft verification failed'}
+          $asset=@($release.assets | Where-Object name -eq 'CHEXX.Setup.1.0.0.exe')
+          if($asset.Count -ne 1 -or $asset[0].size -ne $candidate[0].Length -or $release.assets.Count -ne 4){throw 'Uploaded asset set invalid'}
+          gh release edit $tag --repo $repo --draft=false --latest
+          if($LASTEXITCODE -ne 0){throw 'Stable publish failed'}
+          Write-Host 'VERIFIED_STABLE_1_0_0_PUBLISHED'
