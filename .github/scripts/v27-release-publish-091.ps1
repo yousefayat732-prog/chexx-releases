@@ -38,7 +38,7 @@ $qa=(ExactlyOne $dir 'RELEASE_QA_MANIFEST.json').FullName
 $sha=Sha $exe
 $sideText=(Get-Content $side -Raw).Trim()
 if($sha -ne $sideText.Substring(0,64).ToLowerInvariant() -or
-   $sideText -notmatch 'CHEXX Setup 0\.8\.10\.exe$'){throw 'Installer SHA256 mismatch'}
+   $sideText -notmatch 'CHEXX Setup 0\.9\.1\.exe$'){throw 'Installer SHA256 mismatch'}
 $qaManifest=Get-Content $qa -Raw|ConvertFrom-Json
 if($qaManifest.version -ne $version -or $qaManifest.status -ne 'REVIEW_NOT_PUBLIC' -or
    $qaManifest.boardsVerified -ne 10 -or $qaManifest.piecesVerified -ne 240 -or
