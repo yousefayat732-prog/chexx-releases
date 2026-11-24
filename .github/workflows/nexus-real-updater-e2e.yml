@@ -1,0 +1,88 @@
+name: Charli Chexx real integrated updater 0.9.2 to 1.0.0
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/nexus-real-updater-e2e.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-app-update:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: yousefayat732-prog/CHEXX
+          ref: bfe9d991831a097c2ec5a98e10632bf2d351e1cf
+          ssh-key: ${{ secrets.CHEXX_PRIVATE_SOURCE_DEPLOY_KEY }}
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install verified previous stable on disposable Windows
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference='Stop'
+          gh release download v0.9.2 --dir old --pattern 'CHEXX.Setup.0.9.2.exe*'
+          if($LASTEXITCODE -ne 0){throw 'Download failed'}
+          $file=(Resolve-Path 'old/CHEXX.Setup.0.9.2.exe').Path
+          if((Get-FileHash $file).Hash.ToLowerInvariant() -ne 'f8b9def9a30cc24791c29afc889f3dc77261bd2bbba3e3edbcf95af0d4838794'){throw 'Old setup hash mismatch'}
+          $p=Start-Process $file -ArgumentList '/S' -PassThru -Wait
+          if($p.ExitCode -ne 0){throw 'Old install failed'}
+          node .github/scripts/nexus-update-profile-100.cjs seed
+          if($LASTEXITCODE -ne 0){throw 'Seed failed'}
+      - name: Execute actual installed app update IPC against public GitHub release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/CHEXX/CHEXX.exe'
+          if((Get-Item $exe).VersionInfo.ProductVersion -notmatch '^0\.9\.2(?:\.0)?$'){throw 'Incorrect starting version'}
+          Start-Process $exe -ArgumentList @('--remote-debugging-port=9784','--disable-gpu')
+          @'
+          import assert from 'node:assert/strict';
+          import {connectCDP} from './source/scripts/cdp-qa-helpers.mjs';
+          const c=await connectCDP(9784);
+          try{
+            await c.until('!!window.chexx && !!document.querySelector(".brand-rook")',20000);
+            await c.wait(1500);
+            assert.equal((await c.evaluate('window.chexx.status()')).version,'0.9.2');
+            const release=await c.evaluate('window.chexx.checkUpdate()');
+            assert.equal(release.available,true);
+            assert.equal(release.targetVersion,'1.0.0');
+            const downloaded=await c.evaluate('window.chexx.downloadUpdate()');
+            assert.match(downloaded.sha256,/^[a-f0-9]{64}$/);
+            console.log('REAL_GITHUB_DOWNLOAD_VERIFIED '+downloaded.bytes);
+            const backup=await c.evaluate('window.chexx.prepareUpdateBackup()');
+            assert.equal(backup.verified,true);
+            await assert.rejects(c.evaluate('window.chexx.installUpdate(false)'));
+            const result=await c.evaluate('window.chexx.installUpdate(true)');
+            assert.equal(result.started,true);
+            console.log('REAL_INTEGRATED_UPDATER_HELPER_STARTED');
+          }finally{c.close();}
+          '@ | Set-Content -Encoding utf8 real-update.mjs
+          node real-update.mjs
+          if($LASTEXITCODE -ne 0){throw 'Actual app updater failed'}
+      - name: Verify automatic restart, installed version and data integrity report
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/CHEXX/CHEXX.exe'
+          $report=Join-Path $env:APPDATA 'chexx-academy/last-update-report.json'
+          $deadline=(Get-Date).AddMinutes(6)
+          $ok=$false
+          while((Get-Date) -lt $deadline){
+            if((Test-Path $report) -and (Test-Path $exe)){
+              try{
+                $r=Get-Content $report -Raw|ConvertFrom-Json
+                if($r.state -eq 'PASS' -and $r.installedVersion -eq '1.0.0' -and @($r.differences).Count -eq 0 -and (Get-Item $exe).VersionInfo.ProductVersion -match '^1\.0\.0(?:\.0)?$'){$ok=$true;break}
+              }catch{}
+            }
+            Start-Sleep -Seconds 3
+          }
+          if(!$ok){throw 'No successful restart and integrity report'}
+          Write-Host 'REAL_APP_UPDATER_092_TO_100_PASS'
