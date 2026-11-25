@@ -1,0 +1,329 @@
+name: Charli Chexx 3.2.8 - Learning UX
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/learning-ux-328.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: learning-ux-3-2-8
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - name: Checkout public CI scripts
+        uses: actions/checkout@v4
+      - name: Checkout pinned original Charli Chexx 3.2.8 (private source)
+        uses: actions/checkout@v4
+        with:
+          repository: yousefayat732-prog/CHEXX
+          ref: e4866114f36794053d5b79bd715a249c58dca24d
+          ssh-key: ${{ secrets.CHEXX_PRIVATE_SOURCE_DEPLOY_KEY }}
+          path: source
+          persist-credentials: false
+      - name: Node.js 24 with approved lockfile
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - name: Verify exact source identity and original NSIS compatibility
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $hash=(& git -C source rev-parse HEAD).Trim()
+          if($hash -ne 'e4866114f36794053d5b79bd715a249c58dca24d'){throw 'Wrong learning UX private source'}
+          $pkg=Get-Content source/package.json -Raw|ConvertFrom-Json
+          $channel=Get-Content source/update-channel.json -Raw|ConvertFrom-Json
+          if($pkg.version -ne '3.2.8' -or $pkg.build.appId -ne 'app.chexx.academy' -or
+             $pkg.build.win.target -ne 'nsis' -or $channel.owner -ne 'yousefayat732-prog' -or
+             $channel.repo -ne 'chexx-releases'){throw 'Original NSIS product identity/channel mismatch'}
+          if($pkg.dependencies.PSObject.Properties.Name -contains 'velopack'){throw 'Unapproved NSIS to Velopack switch'}
+      - name: Install locked dependencies
+        working-directory: source
+        run: npm ci
+      - name: Verify npm security advisories before packaging
+        working-directory: source
+        run: npm audit --audit-level=moderate
+      - name: Run all original application and fast-download tests
+        working-directory: source
+        run: npm test
+      - name: Build unsigned verified original Windows NSIS installer
+        working-directory: source
+        run: npm run dist -- --publish never
+      - name: Verify all production assets, NSIS helper and fast downloader
+        working-directory: source
+        shell: pwsh
+        run: |
+          node scripts/verify-release.mjs
+          if($LASTEXITCODE -ne 0){throw 'QA asset verification failed'}
+          node -e "const a=require('@electron/asar');const p=a.listPackage('release-v3.2.8/win-unpacked/resources/app.asar');if(!p.some(x=>x.includes('accelerated-download.cjs')))process.exit(1);console.log('NEXUS_FAST_NSIS_DOWNLOADER_PACKAGED_PASS')"
+          if($LASTEXITCODE -ne 0){throw 'Fast downloader absent from installer'}
+          node scripts/qa-v27-unpacked-audio.mjs
+          if($LASTEXITCODE -ne 0){throw 'CC0 audio packaging verification failed'}
+          $qa=Get-Content 'release-v3.2.8/RELEASE_QA_MANIFEST.json' -Raw|ConvertFrom-Json
+          if($qa.piecesVerified -ne 384 -or $qa.boardsVerified -ne 31 -or !$qa.cc0AudioBundled -or $qa.cc0WavFiles -ne 79 -or $qa.cc0AudioThemes -ne 5 -or
+             !$qa.updateHelperPackaged -or !$qa.updateLauncherPackaged -or
+             $qa.version -ne '3.2.8'){throw 'Incorrect production QA manifest'}
+      - name: Preserve candidate artifact for migration test before stable release
+        uses: actions/upload-artifact@v4
+        with:
+          name: charli-chexx-nexus-3.2.8-nsis-candidate
+          path: |
+            source/release-v3.2.8/CHEXX Setup 3.2.8.exe
+            source/release-v3.2.8/CHEXX Setup 3.2.8.exe.sha256
+            source/release-v3.2.8/CHEXX Setup 3.2.8.exe.blocks.json
+            source/release-v3.2.8/RELEASE_QA_MANIFEST.json
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+
+
+  isolated-upgrade:
+    needs: build
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: yousefayat732-prog/CHEXX
+          ref: e4866114f36794053d5b79bd715a249c58dca24d
+          ssh-key: ${{ secrets.CHEXX_PRIVATE_SOURCE_DEPLOY_KEY }}
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: charli-chexx-nexus-3.2.8-nsis-candidate
+          path: candidate
+      - name: Install original public 3.2.7 on disposable Windows
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference='Stop'
+          gh release download v3.2.7 --repo yousefayat732-prog/chexx-releases --dir old --pattern 'CHEXX.Setup.3.2.7.exe*'
+          if($LASTEXITCODE -ne 0){throw 'Old release download failed'}
+          $old=(Resolve-Path 'old/CHEXX.Setup.3.2.7.exe').Path
+          if((Get-FileHash $old).Hash.ToLowerInvariant() -ne 'd83785dc5c83fb54f6b662ad9176533cbf92e223f75cb051c0647e9820d5b0a9'){throw 'Old installer hash mismatch'}
+          $p=Start-Process $old -ArgumentList '/S' -PassThru -Wait
+          if($p.ExitCode -ne 0){throw 'Old install failed'}
+          node .github/scripts/nexus-update-profile-100.cjs seed
+          if($LASTEXITCODE -ne 0){throw 'Profile seed failed'}
+      - name: Exercise repaired launcher from the actual installed Electron executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/CHEXX/CHEXX.exe'
+          if((Get-Item $exe).VersionInfo.ProductVersion -notmatch '^3\.2\.7(?:\.0)?$'){throw 'Incorrect initial version'}
+          $candidate=@(Get-ChildItem candidate -Recurse -File -Filter 'CHEXX Setup 3.2.8.exe')
+          if($candidate.Count -ne 1){throw 'Wrong candidate count'}
+          $env:QA_CANDIDATE=$candidate[0].FullName
+          $env:QA_SOURCE=(Resolve-Path source).Path
+          $env:QA_REPORT=Join-Path $env:RUNNER_TEMP 'repair-launch-result.json'
+          @'
+          const fs=require('fs'),path=require('path'),assert=require('assert/strict');
+          const {UpdateService}=require(path.join(process.env.QA_SOURCE,'electron/update-service.cjs'));
+          const {DataStore}=require(path.join(process.env.QA_SOURCE,'electron/data-store.cjs'));
+          const {BackupInstallGuard}=require(path.join(process.env.QA_SOURCE,'electron/backup-install-guard.cjs'));
+          const {hashFile}=require(path.join(process.env.QA_SOURCE,'electron/accelerated-download.cjs'));
+          const dir=path.join(process.env.APPDATA,'chexx-academy');
+          const store=new DataStore(dir);
+          const installer=process.env.QA_CANDIDATE;
+          const proof=process.env.QA_REPORT;
+          delete process.env.ELECTRON_RUN_AS_NODE;
+          (async()=>{
+            assert.match(process.execPath,/CHEXX\.exe$/i);
+            const hash=hashFile(installer),bytes=fs.statSync(installer).size;
+            assert.ok(fs.readFileSync(installer+'.sha256','utf8').includes(hash));
+            const service=new UpdateService({dataDir:dir,version:'3.2.7',profileStore:store,channel:null});
+            service.candidate={version:'3.2.8',sha256:hash,bytes};
+            service.downloaded={path:installer,version:'3.2.8',sha256:hash,bytes};
+            const guard=new BackupInstallGuard({profileStore:store,getUpdater:()=>service});
+            assert.equal(guard.createBackup().verified,true);
+            guard.verifyBeforeInstall(true);
+            service.prepareInstall();
+            const launch=service.startInstaller(process.execPath,installer);
+            const ack=path.join(launch.stagingDirectory,'update-helper-started.json');
+            const result=path.join(launch.stagingDirectory,'update-helper-result.json');
+            const end=Date.now()+45000;
+            while(!fs.existsSync(ack)&&Date.now()<end){
+              if(fs.existsSync(result))throw Error(fs.readFileSync(result,'utf8'));
+              await new Promise(r=>setTimeout(r,250));
+            }
+            const confirmed=JSON.parse(fs.readFileSync(ack,'utf8'));
+            assert.equal(confirmed.pid,launch.pid);
+            assert.equal(confirmed.appId,'app.chexx.academy');
+            assert.equal(confirmed.state,'WAITING_FOR_APP_EXIT');
+            fs.writeFileSync(path.join(launch.stagingDirectory,'update-commit.json'),JSON.stringify({nonce:launch.commitNonce}),{flag:'wx'});
+            fs.writeFileSync(proof,JSON.stringify({stage:launch.stagingDirectory,started:true}));
+            process.exit(0);
+          })().catch(e=>{fs.writeFileSync(proof,JSON.stringify({error:e.message}));process.exit(1);});
+          '@ | Set-Content -Encoding utf8 qa-repair.cjs
+          $env:ELECTRON_RUN_AS_NODE='1'
+          $p=Start-Process $exe -ArgumentList ('"'+(Resolve-Path qa-repair.cjs).Path+'"') -PassThru
+          Remove-Item Env:ELECTRON_RUN_AS_NODE
+          if(!$p.WaitForExit(150000)){throw 'Launcher test timed out'}
+          if($p.ExitCode -ne 0){if(Test-Path $env:QA_REPORT){Get-Content $env:QA_REPORT};throw 'Repaired launcher failed'}
+          $proof=Get-Content $env:QA_REPORT -Raw|ConvertFrom-Json
+          if(!$proof.started){throw 'No launcher proof'}
+          $report=Join-Path $env:APPDATA 'chexx-academy/last-update-report.json'
+          $end=(Get-Date).AddMinutes(6)
+          $pass=$false
+          while((Get-Date) -lt $end){
+            if((Test-Path $report) -and (Test-Path $exe)){
+              try{
+                $r=Get-Content $report -Raw|ConvertFrom-Json
+                if($r.state -eq 'PASS' -and $r.installedVersion -eq '3.2.8' -and @($r.differences).Count -eq 0 -and (Get-Item $exe).VersionInfo.ProductVersion -match '^3\.2\.8(?:\.0)?$'){$pass=$true;break}
+              }catch{}
+            }
+            Start-Sleep -Seconds 3
+          }
+          if(!$pass){$helper=Join-Path $proof.stage 'update-helper-result.json';if(Test-Path $helper){Get-Content $helper};if(Test-Path $report){Get-Content $report};Get-Process CHEXX -ErrorAction SilentlyContinue|Select-Object Id,MainWindowTitle,Path|Format-Table;throw 'Repaired helper did not install, restart and preserve profile'}
+          Write-Host 'REPAIRED_LAUNCHER_REAL_WINDOWS_UPGRADE_PASS'
+
+      - name: Verify packaged Classic and Nova on migrated profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/CHEXX/CHEXX.exe'
+          Get-Process CHEXX -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq $exe} | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          Start-Process $exe -ArgumentList @('--remote-debugging-port=9785','--disable-gpu')
+          node source/scripts/qa-learning-installed.mjs
+          if($LASTEXITCODE -ne 0){throw 'Packaged layout or data test failed'}
+
+  publish:
+    needs: [build, isolated-upgrade]
+    runs-on: windows-2022
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: charli-chexx-nexus-3.2.8-nsis-candidate
+          path: candidate
+      - name: Verify exact tested installer and publish stable update
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $health=Invoke-RestMethod 'https://charli-chexx-nexus.yousefayat732.workers.dev/health'
+          if($health.status -ne 'ok' -or $health.database -ne 'connected'){throw 'Production server unavailable'}
+          $repo='yousefayat732-prog/chexx-releases'
+          $tag='v3.2.8'
+          $existing=gh release list --repo $repo --limit 100 --json tagName | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0){throw 'Cannot query release list'}
+          if($existing.tagName -contains $tag){throw 'Release already exists; never overwrite'}
+          $candidate=@(Get-ChildItem candidate -File -Recurse -Filter 'CHEXX Setup 3.2.8.exe')
+          if($candidate.Count -ne 1){throw 'Unexpected candidate'}
+          $exe=$candidate[0].FullName
+          $hash=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $side=(Get-Content ($exe+'.sha256') -Raw).Trim()
+          $blocks=Get-Content ($exe+'.blocks.json') -Raw | ConvertFrom-Json
+          $qa=Get-Content (Join-Path $candidate[0].DirectoryName 'RELEASE_QA_MANIFEST.json') -Raw|ConvertFrom-Json
+          if(!$side.Contains($hash) -or $blocks.sha256 -ne $hash -or $blocks.bytes -ne $candidate[0].Length -or $qa.installerSha256 -ne $hash -or $qa.version -ne '3.2.8'){throw 'Release integrity mismatch'}
+          New-Item -ItemType Directory publish -Force|Out-Null
+          $dest='publish/CHEXX.Setup.3.2.8.exe'
+          Copy-Item $exe $dest
+          [IO.File]::WriteAllText((Join-Path (Resolve-Path publish).Path 'CHEXX.Setup.3.2.8.exe.sha256'),$hash+'  CHEXX Setup 3.2.8.exe'+[Environment]::NewLine)
+          Copy-Item ($exe+'.blocks.json') ($dest+'.blocks.json')
+          Copy-Item (Join-Path $candidate[0].DirectoryName 'RELEASE_QA_MANIFEST.json') publish/
+          gh release create $tag --repo $repo --draft --title 'Charli Chexx 3.2.8 - Learning UX' --notes 'Learning UX 3.2.8: animated puzzle moves, drag-and-drop, correct and wrong field markers, live timer and result summary, guided opening demonstrations, move explanations and German notation. All 105 opening variants and existing profile data retained. Verified installer and isolated upgrade.' $dest ($dest+'.sha256') ($dest+'.blocks.json') 'publish/RELEASE_QA_MANIFEST.json'
+          if($LASTEXITCODE -ne 0){throw 'Draft creation or upload failed'}
+          $release=gh release view $tag --repo $repo --json assets,isDraft | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or !$release.isDraft){throw 'Draft verification failed'}
+          $asset=@($release.assets | Where-Object name -eq 'CHEXX.Setup.3.2.8.exe')
+          if($asset.Count -ne 1 -or $asset[0].size -ne $candidate[0].Length -or $release.assets.Count -ne 4){throw 'Uploaded asset set invalid'}
+          gh release edit $tag --repo $repo --draft=false --latest
+          if($LASTEXITCODE -ne 0){throw 'Stable publish failed'}
+          Write-Host 'VERIFIED_STABLE_3_2_8_PUBLISHED'
+
+  real-app-update:
+    needs: publish
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: yousefayat732-prog/CHEXX
+          ref: e4866114f36794053d5b79bd715a249c58dca24d
+          ssh-key: ${{ secrets.CHEXX_PRIVATE_SOURCE_DEPLOY_KEY }}
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install verified previous stable on disposable Windows
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference='Stop'
+          gh release download v3.2.7 --dir old --pattern 'CHEXX.Setup.3.2.7.exe*'
+          if($LASTEXITCODE -ne 0){throw 'Download failed'}
+          $file=(Resolve-Path 'old/CHEXX.Setup.3.2.7.exe').Path
+          if((Get-FileHash $file).Hash.ToLowerInvariant() -ne 'd83785dc5c83fb54f6b662ad9176533cbf92e223f75cb051c0647e9820d5b0a9'){throw 'Old setup hash mismatch'}
+          $p=Start-Process $file -ArgumentList '/S' -PassThru -Wait
+          if($p.ExitCode -ne 0){throw 'Old install failed'}
+          node .github/scripts/nexus-update-profile-100.cjs seed
+          if($LASTEXITCODE -ne 0){throw 'Seed failed'}
+      - name: Execute actual installed app update IPC against public GitHub release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/CHEXX/CHEXX.exe'
+          if((Get-Item $exe).VersionInfo.ProductVersion -notmatch '^3\.2\.7(?:\.0)?$'){throw 'Incorrect starting version'}
+          Start-Process $exe -ArgumentList @('--remote-debugging-port=9784','--disable-gpu')
+          @'
+          import assert from 'node:assert/strict';
+          import {connectCDP} from './source/scripts/cdp-qa-helpers.mjs';
+          const c=await connectCDP(9784);
+          try{
+            await c.until('!!window.chexx && !!document.querySelector(".brand-rook")',20000);
+            await c.wait(1500);
+            assert.equal((await c.evaluate('window.chexx.status()')).version,'3.2.7');
+            const release=await c.evaluate('window.chexx.checkUpdate()');
+            assert.equal(release.available,true);
+            assert.equal(release.targetVersion,'3.2.8');
+            const downloaded=await c.evaluate('window.chexx.downloadUpdate()');
+            assert.match(downloaded.sha256,/^[a-f0-9]{64}$/);
+            console.log('REAL_GITHUB_DOWNLOAD_VERIFIED '+downloaded.bytes);
+            const backup=await c.evaluate('window.chexx.prepareUpdateBackup()');
+            assert.equal(backup.verified,true);
+            await assert.rejects(c.evaluate('window.chexx.installUpdate(false)'));
+            const result=await c.evaluate('window.chexx.installUpdate(true)');
+            assert.equal(result.started,true);
+            console.log('REAL_INTEGRATED_UPDATER_HELPER_STARTED');
+          }finally{c.close();}
+          '@ | Set-Content -Encoding utf8 real-update.mjs
+          node real-update.mjs
+          if($LASTEXITCODE -ne 0){throw 'Actual app updater failed'}
+      - name: Verify automatic restart, installed version and data integrity report
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/CHEXX/CHEXX.exe'
+          $report=Join-Path $env:APPDATA 'chexx-academy/last-update-report.json'
+          $deadline=(Get-Date).AddMinutes(6)
+          $ok=$false
+          while((Get-Date) -lt $deadline){
+            if((Test-Path $report) -and (Test-Path $exe)){
+              try{
+                $r=Get-Content $report -Raw|ConvertFrom-Json
+                if($r.state -eq 'PASS' -and $r.installedVersion -eq '3.2.8' -and @($r.differences).Count -eq 0 -and (Get-Item $exe).VersionInfo.ProductVersion -match '^3\.2\.8(?:\.0)?$'){$ok=$true;break}
+              }catch{}
+            }
+            Start-Sleep -Seconds 3
+          }
+          if(!$ok){throw 'No successful restart and integrity report'}
+          Write-Host 'REAL_APP_UPDATER_327_TO_328_PASS'
